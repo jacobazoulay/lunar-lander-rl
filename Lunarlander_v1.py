@@ -4,8 +4,30 @@ import numpy as np
 import random
 import copy
 import time
-import os
-import csv
+
+
+class Lander:
+    def __init__(self):
+        self.env_name = 'LunarLander-v2'
+        self.a_space = torch.tensor([0, 1, 2, 3])
+        self.a_space_n = 4
+        self.obs_space_n = 8
+        self.Q = None
+        self.wd = None
+        self.lr = None
+
+
+    def init_net(self, l1=50, l2=50):
+        # initialize neural network
+        self.Q = torch.nn.Sequential(
+                    torch.nn.Linear(self.obs_space_n, 50),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(50, 50),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(50, self.a_space_n)
+                    ).double()
+
+        optimizer = torch.optim.Adam(self.Q.parameters(), lr=self.lr, weight_decay=self.wd)
 
 
 def disc_actions(action_space, bins):
@@ -28,7 +50,7 @@ def disc_actions(action_space, bins):
 
 def act_optimal(Q, observation):
     """
-    Given Q neural network and state observations (list of 24 state variables),
+    Given Q neural network and state observations,
     return best action and action-value determined by Q.
     """
     observation = torch.as_tensor(observation).double()
@@ -50,76 +72,78 @@ def e_greedy_step(Q, observation, epsilon):
         return act_optimal(Q, observation)[0]
 
 
-start = time.time()
+def main():
+    start = time.time()
 
-env = gym.make('LunarLander-v2')
+    env = gym.make('LunarLander-v2')
+    obs_space = env.observation_space  # observation space
+    action_space = env.action_space    # action space
+    n_state = obs_space.n       # 24 state variables
+    n_action = action_space.n   # n_action possible actions = 4
 
-obs_space = env.observation_space  # observation space
-action_space = env.action_space    # action space
+    action = env.action_space.sample()
+    observation = torch.as_tensor(env.reset()).double()  # initial observation
 
-action = env.action_space.sample()
-observation = torch.as_tensor(env.reset()).double()  # initial observation
+    lr = 0.001    # learning rate
+    epsilon = 1      # greedy policy percentage
+    gamma = 0.95     # discount factor
+    wd = 0.01
 
-alpha = 0.001    # learning rate
-epsilon = 1      # greedy policy percentage
-bins = 4         # bins per action variable
-gamma = 0.95     # discount factor
+    a_space_disc = [0, 1, 2, 3]  # return discretized action space
 
-a_space_disc = [0, 1, 2, 3]  # return discretized action space
+    # initialize neural network
+    Q = torch.nn.Sequential(
+        torch.nn.Linear(n_state, 50),
+        torch.nn.ReLU(),
+        torch.nn.Linear(50, 50),
+        torch.nn.ReLU(),
+        torch.nn.Linear(50, n_action)
+        ).double()
 
-n_state = env.observation_space.shape[0]  # 24 state variables
-n_action = len(a_space_disc)  # n_action possible discretized actions  = bins ** 4
+    optimizer = torch.optim.Adam(Q.parameters(), lr=lr, weight_decay=wd)
 
-# initialize neural network
-Q = torch.nn.Sequential(
-    torch.nn.Linear(n_state, 50),
-    torch.nn.ReLU(),
-    torch.nn.Linear(50, 50),
-    torch.nn.ReLU(),
-    torch.nn.Linear(50, n_action)
-    ).double()
+    k_1 = 260000    # iterations of Q_ update
+    k_2 = 100    # iterations per Q_ update
 
-optimizer = torch.optim.Adam(Q.parameters(), lr=alpha)
+    reward_sums = []
+    reward_sum = 0
+    done = False
+    for i in range(k_1):
+        if i % 100 == 0:
+            epsilon = 1 - (i / (k_1 - 1))
+            print(epsilon)
+        Q_ = copy.deepcopy(Q)
+        for j in range(k_2):
+            env.render()
+            if done:
+                reward_sums.append(reward_sum)
+                observation = torch.as_tensor(env.reset()).double()
+                reward_sum = 0
+            action = e_greedy_step(Q_, observation, epsilon)
+            observation_next, reward, done, info = env.step(action)
+            reward_sum = reward_sum + reward
+
+            Q_target = reward + (1 - done) * gamma * act_optimal(Q_, observation_next)[1]  # estimated optimal u
+            Q_output = Q(observation)[a_space_disc.index(action)]  # u given by Q(s, a) received when taking action a from s
+            observation = torch.as_tensor(observation_next).double()
+            #print(action, ", ", reward)
+            #print(Q_output.item(), ", ",  Q_target.item())
+            criterion = torch.nn.MSELoss()  # squared error loss function
+            loss = criterion(Q_output, Q_target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+    #env.close()
+
+    print(reward_sums)
+    end = time.time()
+    print("Runtime: ", str(end - start))
+
+    torch.save(Q, "Q_Lunar_v2.pt")
+    np.savetxt("Rewards_Lunar_v2.csv", reward_sums, delimiter=", ", fmt='% s')
 
 
-k_1 = 260000    # iterations of Q_ update
-k_2 = 100    # iterations per Q_ update
-
-reward_sums = []
-reward_sum = 0
-done = False
-for i in range(k_1):
-    if i % 100 == 0:
-        epsilon = 1 - (i / (k_1 - 1))
-        print(epsilon)
-    Q_ = copy.deepcopy(Q)
-    for j in range(k_2):
-        env.render()
-        if done:
-            reward_sums.append(reward_sum)
-            observation = torch.as_tensor(env.reset()).double()
-            reward_sum = 0
-        action = e_greedy_step(Q_, observation, epsilon)
-        observation_next, reward, done, info = env.step(action)
-        reward_sum = reward_sum + reward
-
-        Q_target = reward + (1 - done) * gamma * act_optimal(Q_, observation_next)[1]  # estimated optimal u
-        Q_output = Q(observation)[a_space_disc.index(action)]  # u given by Q(s, a) received when taking action a from s
-        observation = torch.as_tensor(observation_next).double()
-        #print(action, ", ", reward)
-        #print(Q_output.item(), ", ",  Q_target.item())
-        criterion = torch.nn.MSELoss()  # squared error loss function
-        loss = criterion(Q_output, Q_target)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-#env.close()
-
-print(reward_sums)
-end = time.time()
-print("Runtime: ", str(end - start))
-
-torch.save(Q, "Q_Lunar_v2.pt")
-np.savetxt("Rewards_Lunar_v2.csv", reward_sums, delimiter=", ", fmt='% s')
+if __name__ == "__main__":
+    main()
