@@ -8,26 +8,48 @@ import time
 
 class Lander:
     def __init__(self):
-        self.env_name = 'LunarLander-v2'
         self.a_space = torch.tensor([0, 1, 2, 3])
         self.a_space_n = 4
         self.obs_space_n = 8
-        self.Q = None
-        self.wd = None
-        self.lr = None
+
+        self.Q = QNet(self.obs_space_n, self.a_space_n)
+        self.Q_ = QNet(self.obs_space_n, self.a_space_n)
+
+        self.env = gym.make('LunarLander-v2')
+        self.observation = torch.as_tensor(self.env.reset()).double()
+        self.done = False
+        self.reward, self.action, self.action_u = None, None, None
+
+    def act(self):
+        self.env.render()
+        if self.done == True:
+            self.observation = torch.as_tensor(self.env.reset()).double()
+        self.action, self.action_u = act_optimal(self.Q.net, self.observation)
+        self.observation, self.reward, self.done, _ = self.env.step(self.action)
+
+    def train_step(self):
+        # Q_target = reward + (1 - done) * gamma * act_optimal(Q_, observation_next)[1]  # estimated optimal u
+        # Q_output = Q(observation)[a_space_disc.index(action)]  # u given by Q(s, a) received when taking action a from s
+        # observation = torch.as_tensor(observation_next).double()
 
 
-    def init_net(self, l1=50, l2=50):
+class QNet:
+    def __init__(self, in_n, out_n, l1=50, l2=50):
         # initialize neural network
-        self.Q = torch.nn.Sequential(
-                    torch.nn.Linear(self.obs_space_n, 50),
+        self.lr = 0.9
+        self.wd = 0.0
+        self.net = torch.nn.Sequential(
+                    torch.nn.Linear(in_n, l1),
                     torch.nn.ReLU(),
-                    torch.nn.Linear(50, 50),
+                    torch.nn.Linear(l1, l2),
                     torch.nn.ReLU(),
-                    torch.nn.Linear(50, self.a_space_n)
+                    torch.nn.Linear(l2, out_n)
                     ).double()
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
 
-        optimizer = torch.optim.Adam(self.Q.parameters(), lr=self.lr, weight_decay=self.wd)
+    def forward(self, obs):
+        out = self.net(obs)
+        return out
 
 
 def disc_actions(action_space, bins):
@@ -55,9 +77,8 @@ def act_optimal(Q, observation):
     """
     observation = torch.as_tensor(observation).double()
     Q_out = Q(observation)
-    action_u = torch.max(Q_out)
-    action_idx = torch.argmax(Q_out)
-    action = a_space_disc[action_idx]
+    action = int(torch.argmax(Q_out))
+    action_u = Q_out[action]
     return action, action_u
 
 
@@ -72,36 +93,7 @@ def e_greedy_step(Q, observation, epsilon):
         return act_optimal(Q, observation)[0]
 
 
-def main():
-    start = time.time()
-
-    env = gym.make('LunarLander-v2')
-    obs_space = env.observation_space  # observation space
-    action_space = env.action_space    # action space
-    n_state = obs_space.n       # 24 state variables
-    n_action = action_space.n   # n_action possible actions = 4
-
-    action = env.action_space.sample()
-    observation = torch.as_tensor(env.reset()).double()  # initial observation
-
-    lr = 0.001    # learning rate
-    epsilon = 1      # greedy policy percentage
-    gamma = 0.95     # discount factor
-    wd = 0.01
-
-    a_space_disc = [0, 1, 2, 3]  # return discretized action space
-
-    # initialize neural network
-    Q = torch.nn.Sequential(
-        torch.nn.Linear(n_state, 50),
-        torch.nn.ReLU(),
-        torch.nn.Linear(50, 50),
-        torch.nn.ReLU(),
-        torch.nn.Linear(50, n_action)
-        ).double()
-
-    optimizer = torch.optim.Adam(Q.parameters(), lr=lr, weight_decay=wd)
-
+def prev_test():
     k_1 = 260000    # iterations of Q_ update
     k_2 = 100    # iterations per Q_ update
 
@@ -135,14 +127,11 @@ def main():
             loss.backward()
             optimizer.step()
 
-    #env.close()
 
-    print(reward_sums)
-    end = time.time()
-    print("Runtime: ", str(end - start))
-
-    torch.save(Q, "Q_Lunar_v2.pt")
-    np.savetxt("Rewards_Lunar_v2.csv", reward_sums, delimiter=", ", fmt='% s')
+def main():
+    lander = Lander()
+    while True:
+        lander.act()
 
 
 if __name__ == "__main__":
