@@ -10,7 +10,7 @@ class Lander:
         self.a_space_n = 4
         self.obs_space_n = 8
 
-        self.epsilon = 0.5
+        self.epsilon = 1.0
         self.gamma = 0.9
 
         self.Q = QNet(self.obs_space_n, self.a_space_n)
@@ -64,6 +64,9 @@ class Lander:
             self.act_optimal()
 
     def train_step(self):
+        """
+        Perform one step of bellman update using backprop and gradient descent.
+        """
         exp_u = torch.max(self.Q_.forward(self.observation))
         Q_target = self.reward + (1 - self.done) * self.gamma * exp_u  # estimated optimal u
         Q_output = self.action_u  # u given by Q(s, a) received when taking action a from s
@@ -75,13 +78,19 @@ class Lander:
         self.Q.optimizer.step()
 
     def update_target_net(self):
+        """
+        Copy main net to target net.
+        """
         self.Q_ = copy.deepcopy(self.Q)
+
+    def decay_epsilon(self):
+        self.epsilon *= 0.99
 
 
 class QNet:
-    def __init__(self, in_n, out_n, l1=50, l2=50):
+    def __init__(self, in_n, out_n, l1=64, l2=64):
         # initialize neural network
-        self.lr = 0.9
+        self.lr = 0.001
         self.wd = 0.0
         self.net = torch.nn.Sequential(
                     torch.nn.Linear(in_n, l1),
