@@ -2,6 +2,8 @@ import torch
 import gym
 import numpy as np
 import copy
+import time
+from matplotlib import pyplot as plt
 
 
 class Lander:
@@ -12,6 +14,7 @@ class Lander:
 
         self.epsilon = 1.0
         self.gamma = 0.9
+        self.k = None
 
         self.Q = QNet(self.obs_space_n, self.a_space_n)
         self.Q_ = QNet(self.obs_space_n, self.a_space_n)
@@ -21,14 +24,13 @@ class Lander:
         self.done = False
         self.reward, self.action, self.action_u = None, None, None
 
+        self.scene_reward = 0.0
+        self.scene_rewards = [None]
+
     def act_optimal(self):
         """
         Given current observation, execute optimal action determined by action-value function Q neural net.
         """
-        self.env.render()
-        if self.done == True:
-            self.observation = torch.as_tensor(self.env.reset()).double()
-
         Q_out = self.Q.forward(self.observation)
         self.action = int(torch.argmax(Q_out))
         self.action_u = Q_out[self.action]
@@ -40,10 +42,6 @@ class Lander:
         """
         Execute random action.
         """
-        self.env.render()
-        if self.done == True:
-            self.observation = torch.as_tensor(self.env.reset()).double()
-
         idx = np.random.randint(0, 4)
         self.action = int(self.a_space[idx])
 
@@ -53,15 +51,26 @@ class Lander:
         self.observation, self.reward, self.done, _ = self.env.step(self.action)
         self.observation = torch.as_tensor(self.observation).double()
 
-    def e_greedy_step(self):
+    def e_greedy_step(self, render):
         """
         Given Q neural network, state observations (list of 8 state variables), and epsilon
         execute random policy with epsilon probability. Otherwise act optimally.
         """
+        if render == True:
+            self.env.render()
+
+        if self.done == True:
+            self.observation = torch.as_tensor(self.env.reset()).double()
+            self.scene_rewards.append(self.scene_reward)
+            self.scene_reward = 0
+
         if np.random.random_sample() < self.epsilon:
             self.act_random()
         else:
             self.act_optimal()
+
+        self.scene_reward += self.reward
+        self.decay_epsilon()
 
     def train_step(self):
         """
@@ -84,7 +93,29 @@ class Lander:
         self.Q_ = copy.deepcopy(self.Q)
 
     def decay_epsilon(self):
-        self.epsilon *= 0.99
+        self.epsilon -= 1 / self.k
+
+    def train(self, k=10000, update_Q_every=100, display_every=1000, render=False):
+        start = time.time()
+        self.k = k
+        for i in range(self.k):
+            if i % update_Q_every == 0:
+                self.update_target_net()
+            self.e_greedy_step(render)
+            self.train_step()
+            self.display_info(i, display_every)
+        print('Runtime: ', round(time.time() - start, 2), ' s')
+
+    def display_info(self, i, display_every):
+        if i % display_every == 0 or i == self.k - 1:
+            print(round(100 * i/self.k, 2), '%     Reward: ', self.scene_rewards[-1])
+
+    def plot_reward(self):
+        self.scene_rewards.pop(0)
+        x = range(len(self.scene_rewards))
+        y = self.scene_rewards
+        plt.scatter(x, y)
+        plt.show()
 
 
 class QNet:
@@ -108,12 +139,8 @@ class QNet:
 
 def main():
     lander = Lander()
-    k = 1000
-    for i in range(k):
-        if k % 100 == 0:
-            lander.update_target_net()
-        lander.e_greedy_step()
-        lander.train_step()
+    lander.train(k=1000000, update_Q_every=100, display_every=10000, render=False)
+    lander.plot_reward()
 
 
 if __name__ == "__main__":
