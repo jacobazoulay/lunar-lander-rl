@@ -4,10 +4,19 @@ import numpy as np
 import copy
 import time
 from matplotlib import pyplot as plt
+import os
+
+
+def save_fig(fig):
+    num = 1
+    fname = 'figs/plot_'
+    while os.path.exists(fname + str(num) + '.png'):
+        num += 1
+    fig.savefig(fname + str(num) + '.png')
 
 
 class Lander:
-    def __init__(self):
+    def __init__(self, lr):
         self.a_space = torch.tensor([0, 1, 2, 3])
         self.a_space_n = 4
         self.obs_space_n = 8
@@ -16,8 +25,8 @@ class Lander:
         self.gamma = 0.9
         self.k = None
 
-        self.Q = QNet(self.obs_space_n, self.a_space_n)
-        self.Q_ = QNet(self.obs_space_n, self.a_space_n)
+        self.Q = QNet(self.obs_space_n, self.a_space_n, lr)
+        self.Q_ = QNet(self.obs_space_n, self.a_space_n, lr)
 
         self.env = gym.make('LunarLander-v2')
         self.observation = torch.as_tensor(self.env.reset()).double()
@@ -96,7 +105,6 @@ class Lander:
         self.epsilon -= 1 / self.k
 
     def train(self, k=10000, update_Q_every=100, display_every=1000, render=False):
-        start = time.time()
         self.k = k
         for i in range(self.k):
             if i % update_Q_every == 0:
@@ -104,24 +112,27 @@ class Lander:
             self.e_greedy_step(render)
             self.train_step()
             self.display_info(i, display_every)
-        print('Runtime: ', round(time.time() - start, 2), ' s')
 
     def display_info(self, i, display_every):
         if i % display_every == 0 or i == self.k - 1:
-            print(round(100 * i/self.k, 2), '%     Reward: ', self.scene_rewards[-1])
+            print(round(100 * i/self.k, 2), '%     Reward: ', self.scene_rewards[-1], '     LR: ', round(self.Q.lr, 6))
 
     def plot_reward(self):
         self.scene_rewards.pop(0)
         x = range(len(self.scene_rewards))
         y = self.scene_rewards
-        plt.scatter(x, y)
-        plt.show()
+        fig, ax = plt.subplots()
+        ax.scatter(x, y)
+        ax.set_title('Rewards with LR ' + str(round(self.Q.lr, 6)))
+        ax.set_xlabel('Episode')
+        ax.set_ylabel('Reward')
+        save_fig(fig)
 
 
 class QNet:
-    def __init__(self, in_n, out_n, l1=64, l2=64):
+    def __init__(self, in_n, out_n, lr, l1=64, l2=64):
         # initialize neural network
-        self.lr = 0.001
+        self.lr = lr
         self.wd = 0.0
         self.net = torch.nn.Sequential(
                     torch.nn.Linear(in_n, l1),
@@ -137,10 +148,20 @@ class QNet:
         return out
 
 
+def random_search():
+    start = time.time()
+    lrs = 10 ** np.linspace(0, -5, 10)
+    lrs = [0.0004]
+    for lr in lrs:
+        lander = Lander(lr)
+        lander.train(k=2000000, update_Q_every=100, display_every=50000, render=False)
+        lander.plot_reward()
+    print('Runtime: ', round(time.time() - start, 2), ' s')
+
+
 def main():
-    lander = Lander()
-    lander.train(k=1000000, update_Q_every=100, display_every=10000, render=False)
-    lander.plot_reward()
+    # Hypyerparameters include: lr, gamma, net structure, wd
+    random_search()
 
 
 if __name__ == "__main__":
