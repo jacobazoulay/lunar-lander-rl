@@ -7,8 +7,8 @@ This project implements deep Q learning (DQN) to optimize a lunar lander control
 The Lunarlander.py file contains both the Lander class for the agent and the QNet class for the neural network model.
 
 ## Figures
-Reward after training for 3000 episodes:
+### Reward after Training for 3000 Episodes
 ![Reward Over Time](/figs/plot_11.png)
 
-Agent:
+### Agent
 ![Lander](/figs/lander.png)
