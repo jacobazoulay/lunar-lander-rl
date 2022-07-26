@@ -15,6 +15,7 @@ def save_fig(fig):
     fig.savefig(fname + str(num) + '.png')
 
 
+# noinspection PyPep8Naming
 class Lander:
     def __init__(self, lr):
         self.a_space = torch.tensor([0, 1, 2, 3])
@@ -63,12 +64,12 @@ class Lander:
     def e_greedy_step(self, render):
         """
         Given Q neural network, state observations (list of 8 state variables), and epsilon
-        execute random policy with epsilon probability. Otherwise act optimally.
+        execute random policy with epsilon probability. Otherwise, act optimally.
         """
-        if render == True:
+        if render:
             self.env.render()
 
-        if self.done == True:
+        if self.done:
             self.observation = torch.as_tensor(self.env.reset()).double()
             self.scene_rewards.append(self.scene_reward)
             self.scene_reward = 0
